@@ -9,6 +9,7 @@ func main() {
 		Handler: serveMux,
 	}
 	serveMux.Handle("/", http.FileServer(http.Dir(".")))
+	serveMux.Handle("assets/logo.png", http.FileServer(http.Dir("./assets/logo.png")))
 	err := server.ListenAndServe()
 	if err != nil {
 		panic(err)
