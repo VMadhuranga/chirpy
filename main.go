@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 )
 
@@ -60,6 +62,40 @@ func main() {
 		w.WriteHeader(200)
 		cfg.resetMiddlewareMetrics()
 		w.Write([]byte("resettled"))
+	})
+
+	serveMux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
+		type parameters struct {
+			Body string
+		}
+		type errorResponse struct {
+			Error string `json:"error"`
+		}
+		type successResponse struct {
+			Valid bool `json:"valid"`
+		}
+		decoder := json.NewDecoder(r.Body)
+		params := parameters{}
+		err := decoder.Decode(&params)
+		if err != nil {
+			log.Printf("Error decoding parameters: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if len(params.Body) > 140 {
+			errRes, _ := json.Marshal(errorResponse{
+				Error: "Chirp is too long",
+			})
+			w.WriteHeader(400)
+			w.Write(errRes)
+			return
+		}
+		w.WriteHeader(200)
+		successRes, _ := json.Marshal(successResponse{
+			Valid: true,
+		})
+		w.Write(successRes)
 	})
 
 	err := server.ListenAndServe()
