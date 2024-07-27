@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 )
 
 type apiConfig struct {
@@ -72,7 +73,7 @@ func main() {
 			Error string `json:"error"`
 		}
 		type successResponse struct {
-			Valid bool `json:"valid"`
+			CleanedBody string `json:"cleaned_body"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		params := parameters{}
@@ -82,19 +83,30 @@ func main() {
 			w.WriteHeader(500)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
 		if len(params.Body) > 140 {
-			errRes, _ := json.Marshal(errorResponse{
+			errRes, err := json.Marshal(errorResponse{
 				Error: "Chirp is too long",
 			})
+			if err != nil {
+				log.Printf("Error encoding error response: %s", err)
+				w.WriteHeader(500)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(400)
 			w.Write(errRes)
 			return
 		}
-		w.WriteHeader(200)
-		successRes, _ := json.Marshal(successResponse{
-			Valid: true,
+		successRes, err := json.Marshal(successResponse{
+			CleanedBody: removeProfane(params.Body),
 		})
+		if err != nil {
+			log.Printf("Error encoding success response: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
 		w.Write(successRes)
 	})
 
@@ -102,4 +114,17 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func removeProfane(data string) string {
+	profane := map[string]bool{"kerfuffle": true, "sharbert": true, "fornax": true}
+	cleanedData := []string{}
+	for _, field := range strings.Fields(data) {
+		if _, ok := profane[strings.ToLower(field)]; ok {
+			cleanedData = append(cleanedData, "****")
+		} else {
+			cleanedData = append(cleanedData, field)
+		}
+	}
+	return strings.Join(cleanedData, " ")
 }
