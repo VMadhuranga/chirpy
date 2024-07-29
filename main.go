@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/VMadhuranga/chirpy/database"
@@ -106,6 +107,26 @@ func main() {
 			return
 		}
 		respondWithSuccess(w, 200, chirps)
+	})
+
+	serveMux.HandleFunc("GET /api/chirps/{chirpId}", func(w http.ResponseWriter, r *http.Request) {
+		chirpId, err := strconv.Atoi(r.PathValue("chirpId"))
+		if err != nil {
+			log.Printf("Error converting string to int: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		chirp, ok, err := db.GetChirp(chirpId)
+		if err != nil {
+			log.Printf("Error getting chirp: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		if !ok {
+			respondWithError(w, 404, "Chirp not found")
+			return
+		}
+		respondWithSuccess(w, 200, chirp)
 	})
 
 	err = server.ListenAndServe()
