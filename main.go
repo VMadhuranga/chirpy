@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"strings"
+
+	"github.com/VMadhuranga/chirpy/database"
 )
 
 type apiConfig struct {
@@ -28,6 +30,11 @@ func (cfg *apiConfig) resetMiddlewareMetrics() {
 }
 
 func main() {
+	db, err := database.NewDatabase("./")
+	if err != nil {
+		log.Printf("Error creating database: %s", err)
+		return
+	}
 	serveMux := http.NewServeMux()
 	server := http.Server{
 		Addr:    ":8080",
@@ -46,9 +53,9 @@ func main() {
 	})
 
 	serveMux.HandleFunc("GET /admin/metrics", func(w http.ResponseWriter, r *http.Request) {
+		metrics := cfg.getMiddlewareMetrics()
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(200)
-		metrics := cfg.getMiddlewareMetrics()
 		w.Write([]byte(fmt.Sprintf(`
 		<html>
 			<body>
@@ -59,61 +66,84 @@ func main() {
 	})
 
 	serveMux.HandleFunc("GET /api/reset", func(w http.ResponseWriter, r *http.Request) {
+		cfg.resetMiddlewareMetrics()
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(200)
-		cfg.resetMiddlewareMetrics()
 		w.Write([]byte("resettled"))
 	})
 
-	serveMux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
-		type parameters struct {
+	serveMux.HandleFunc("POST /api/chirps", func(w http.ResponseWriter, r *http.Request) {
+		type payload struct {
 			Body string
 		}
-		type errorResponse struct {
-			Error string `json:"error"`
-		}
-		type successResponse struct {
-			CleanedBody string `json:"cleaned_body"`
-		}
 		decoder := json.NewDecoder(r.Body)
-		params := parameters{}
-		err := decoder.Decode(&params)
+		pld := payload{}
+		err := decoder.Decode(&pld)
 		if err != nil {
-			log.Printf("Error decoding parameters: %s", err)
-			w.WriteHeader(500)
+			log.Printf("Error decoding payload: %s", err)
+			respondWithError(w, 500, "")
 			return
 		}
-		if len(params.Body) > 140 {
-			errRes, err := json.Marshal(errorResponse{
-				Error: "Chirp is too long",
-			})
-			if err != nil {
-				log.Printf("Error encoding error response: %s", err)
-				w.WriteHeader(500)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(400)
-			w.Write(errRes)
+		if len(pld.Body) > 140 {
+			respondWithError(w, 400, "Chirp is too long")
 			return
 		}
-		successRes, err := json.Marshal(successResponse{
-			CleanedBody: removeProfane(params.Body),
-		})
+		chirp, err := db.CreateChirp(pld.Body)
 		if err != nil {
-			log.Printf("Error encoding success response: %s", err)
-			w.WriteHeader(500)
+			log.Printf("Error creating chirp: %s", err)
+			respondWithError(w, 500, "")
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(200)
-		w.Write(successRes)
+		chirp.Body = removeProfane(chirp.Body)
+		respondWithSuccess(w, 201, chirp)
 	})
 
-	err := server.ListenAndServe()
+	serveMux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {
+		chirps, err := db.GetChirps()
+		if err != nil {
+			log.Printf("Error getting chirps: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		respondWithSuccess(w, 200, chirps)
+	})
+
+	err = server.ListenAndServe()
 	if err != nil {
 		panic(err)
 	}
+}
+
+func respondWithSuccess(w http.ResponseWriter, statusCode int, payload interface{}) {
+	successRes, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("Error encoding success response: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	w.Write(successRes)
+}
+
+func respondWithError(w http.ResponseWriter, statusCode int, errorMessage string) {
+	type errorResponse struct {
+		Error string `json:"error"`
+	}
+	if len(errorMessage) == 0 {
+		errorMessage = "Internal server error"
+	}
+	errRes, err := json.Marshal(errorResponse{
+		Error: errorMessage,
+	})
+	if err != nil {
+		log.Printf("Error encoding error response: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	w.Write(errRes)
 }
 
 func removeProfane(data string) string {
