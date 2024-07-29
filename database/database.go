@@ -82,6 +82,18 @@ func (db database) GetChirps() ([]chirp, error) {
 	return chirps, nil
 }
 
+func (db database) GetChirp(chirpId int) (chirp, bool, error) {
+	dbs, err := db.load()
+	if err != nil {
+		return chirp{}, false, err
+	}
+	c, ok := dbs.Chirps[chirpId]
+	if !ok {
+		return chirp{}, false, nil
+	}
+	return c, ok, nil
+}
+
 func NewDatabase(path string) (database, error) {
 	fPath := filepath.Join(path, "database.json")
 	file, err := os.Create(fPath)
