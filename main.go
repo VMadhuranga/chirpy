@@ -129,6 +129,28 @@ func main() {
 		respondWithSuccess(w, 200, chirp)
 	})
 
+	serveMux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
+		type payload struct {
+			Email    string
+			Password string
+		}
+		decoder := json.NewDecoder(r.Body)
+		pld := payload{}
+		err := decoder.Decode(&pld)
+		if err != nil {
+			log.Printf("Error decoding payload: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		user, err := db.CreateUser(pld.Email, pld.Password)
+		if err != nil {
+			log.Printf("Error creating user: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		respondWithSuccess(w, 201, user)
+	})
+
 	err = server.ListenAndServe()
 	if err != nil {
 		panic(err)
