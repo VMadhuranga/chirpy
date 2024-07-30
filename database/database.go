@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type chirp struct {
@@ -12,8 +14,15 @@ type chirp struct {
 	Body string `json:"body"`
 }
 
+type user struct {
+	Id       int    `json:"id"`
+	Email    string `json:"email"`
+	Password string `json:"password,omitempty"`
+}
+
 type databaseStructure struct {
 	Chirps map[int]chirp `json:"chirps"`
+	Users  map[int]user  `json:"users"`
 }
 
 type database struct {
@@ -50,19 +59,19 @@ func (db database) save(dbs databaseStructure) error {
 	return nil
 }
 
-var id = 1
+var chirpId = 1
 
 func (db database) CreateChirp(body string) (chirp, error) {
 	c := chirp{
-		Id:   id,
+		Id:   chirpId,
 		Body: body,
 	}
 	dbs, err := db.load()
 	if err != nil {
 		return chirp{}, err
 	}
-	dbs.Chirps[id] = c
-	id++
+	dbs.Chirps[chirpId] = c
+	chirpId++
 	err = db.save(dbs)
 	if err != nil {
 		return chirp{}, err
@@ -94,6 +103,32 @@ func (db database) GetChirp(chirpId int) (chirp, bool, error) {
 	return c, ok, nil
 }
 
+var userId = 1
+
+func (db database) CreateUser(email, password string) (user, error) {
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 10)
+	if err != nil {
+		return user{}, err
+	}
+	u := user{
+		Id:       userId,
+		Email:    email,
+		Password: string(hashedPassword),
+	}
+	dbs, err := db.load()
+	if err != nil {
+		return user{}, err
+	}
+	dbs.Users[userId] = u
+	userId++
+	err = db.save(dbs)
+	if err != nil {
+		return user{}, err
+	}
+	u.Password = ""
+	return u, nil
+}
+
 func NewDatabase(path string) (database, error) {
 	fPath := filepath.Join(path, "database.json")
 	file, err := os.Create(fPath)
@@ -103,6 +138,7 @@ func NewDatabase(path string) (database, error) {
 	defer file.Close()
 	dbs, err := json.Marshal(databaseStructure{
 		Chirps: map[int]chirp{},
+		Users:  map[int]user{},
 	})
 	if err != nil {
 		return database{}, err
