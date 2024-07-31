@@ -21,8 +21,8 @@ type user struct {
 }
 
 type databaseStructure struct {
-	Chirps map[int]chirp `json:"chirps"`
-	Users  map[int]user  `json:"users"`
+	Chirps map[int]chirp   `json:"chirps"`
+	Users  map[string]user `json:"users"`
 }
 
 type database struct {
@@ -119,7 +119,7 @@ func (db database) CreateUser(email, password string) (user, error) {
 	if err != nil {
 		return user{}, err
 	}
-	dbs.Users[userId] = u
+	dbs.Users[email] = u
 	userId++
 	err = db.save(dbs)
 	if err != nil {
@@ -127,6 +127,18 @@ func (db database) CreateUser(email, password string) (user, error) {
 	}
 	u.Password = ""
 	return u, nil
+}
+
+func (db database) GetUser(userEmail string) (user, bool, error) {
+	dbs, err := db.load()
+	if err != nil {
+		return user{}, false, err
+	}
+	u, ok := dbs.Users[userEmail]
+	if !ok {
+		return user{}, false, nil
+	}
+	return u, ok, nil
 }
 
 func NewDatabase(path string) (database, error) {
@@ -138,7 +150,7 @@ func NewDatabase(path string) (database, error) {
 	defer file.Close()
 	dbs, err := json.Marshal(databaseStructure{
 		Chirps: map[int]chirp{},
-		Users:  map[int]user{},
+		Users:  map[string]user{},
 	})
 	if err != nil {
 		return database{}, err
