@@ -142,6 +142,16 @@ func main() {
 			respondWithError(w, 500, "")
 			return
 		}
+		_, ok, err := db.GetUser(pld.Email)
+		if err != nil {
+			log.Printf("Error getting user: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		if ok {
+			respondWithError(w, 400, "User with this email already exist")
+			return
+		}
 		user, err := db.CreateUser(pld.Email, pld.Password)
 		if err != nil {
 			log.Printf("Error creating user: %s", err)
