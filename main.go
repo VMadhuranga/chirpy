@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/VMadhuranga/chirpy/database"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type apiConfig struct {
@@ -161,10 +162,46 @@ func main() {
 		respondWithSuccess(w, 201, user)
 	})
 
+	serveMux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
+		type payload struct {
+			Email    string
+			Password string
+		}
+		decoder := json.NewDecoder(r.Body)
+		pld := payload{}
+		err := decoder.Decode(&pld)
+		if err != nil {
+			log.Printf("Error decoding payload: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		user, ok, err := db.GetUser(pld.Email)
+		if err != nil {
+			log.Printf("Error getting user: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		if !ok {
+			respondWithError(w, 401, "Incorrect email")
+			return
+		}
+		err = login(user.Password, pld.Password)
+		if err != nil {
+			respondWithError(w, 401, "Incorrect password")
+			return
+		}
+		user.Password = ""
+		respondWithSuccess(w, 201, user)
+	})
+
 	err = server.ListenAndServe()
 	if err != nil {
 		panic(err)
 	}
+}
+
+func login(userPassword, comparingPassword string) error {
+	return bcrypt.CompareHashAndPassword([]byte(userPassword), []byte(comparingPassword))
 }
 
 func respondWithSuccess(w http.ResponseWriter, statusCode int, payload interface{}) {
