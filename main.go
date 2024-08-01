@@ -5,15 +5,20 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/VMadhuranga/chirpy/database"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/joho/godotenv"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type apiConfig struct {
 	fileserverHits int
+	jwtSecret      string
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -32,6 +37,11 @@ func (cfg *apiConfig) resetMiddlewareMetrics() {
 }
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Printf("Error loading .env file: %s", err)
+		return
+	}
 	db, err := database.NewDatabase("./")
 	if err != nil {
 		log.Printf("Error creating database: %s", err)
@@ -42,7 +52,9 @@ func main() {
 		Addr:    ":8080",
 		Handler: serveMux,
 	}
-	cfg := apiConfig{}
+	cfg := apiConfig{
+		jwtSecret: os.Getenv("JWT_TOKEN"),
+	}
 
 	serveMux.Handle("GET /app/*", http.StripPrefix("/app", cfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
 	serveMux.Handle("GET /assets/logo.png", http.FileServer(http.Dir("./assets/logo.png")))
@@ -166,6 +178,7 @@ func main() {
 		type payload struct {
 			Email    string
 			Password string
+			ExpInSec int `json:"expires_in_seconds"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		pld := payload{}
@@ -190,7 +203,18 @@ func main() {
 			respondWithError(w, 401, "Incorrect password")
 			return
 		}
-		user.Password = ""
+		jwtExpTime := time.Duration(pld.ExpInSec) * time.Second
+		if pld.ExpInSec == 0 || jwtExpTime > 24*time.Hour {
+			jwtExpTime = 24 * time.Hour
+		}
+		token, err := createJWT(jwtExpTime, user.Id, cfg.jwtSecret)
+		if err != nil {
+			log.Printf("Error creating jwt: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		user.Password = "" // remove password field from response
+		user.Token = token
 		respondWithSuccess(w, 201, user)
 	})
 
@@ -202,6 +226,21 @@ func main() {
 
 func login(userPassword, comparingPassword string) error {
 	return bcrypt.CompareHashAndPassword([]byte(userPassword), []byte(comparingPassword))
+}
+
+func createJWT(expTime time.Duration, userId int, jwtSecret string) (string, error) {
+	curTime := time.Now()
+	claims := jwt.RegisteredClaims{
+		Issuer:    "chirpy",
+		IssuedAt:  jwt.NewNumericDate(curTime),
+		ExpiresAt: jwt.NewNumericDate(curTime.Add(expTime)),
+		Subject:   strconv.Itoa(userId),
+	}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(jwtSecret))
+	if err != nil {
+		return "", err
+	}
+	return token, nil
 }
 
 func respondWithSuccess(w http.ResponseWriter, statusCode int, payload interface{}) {
