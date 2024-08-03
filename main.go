@@ -36,6 +36,12 @@ func (cfg *apiConfig) resetMiddlewareMetrics() {
 	cfg.fileserverHits = 0
 }
 
+type userPayload struct {
+	Email    string
+	Password string
+	ExpInSec int `json:"expires_in_seconds"`
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -143,12 +149,8 @@ func main() {
 	})
 
 	serveMux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
-		type payload struct {
-			Email    string
-			Password string
-		}
 		decoder := json.NewDecoder(r.Body)
-		pld := payload{}
+		pld := userPayload{}
 		err := decoder.Decode(&pld)
 		if err != nil {
 			log.Printf("Error decoding payload: %s", err)
@@ -174,14 +176,37 @@ func main() {
 		respondWithSuccess(w, 201, user)
 	})
 
-	serveMux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
-		type payload struct {
-			Email    string
-			Password string
-			ExpInSec int `json:"expires_in_seconds"`
-		}
+	serveMux.HandleFunc("PUT /api/users", func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
-		pld := payload{}
+		pld := userPayload{}
+		err := decoder.Decode(&pld)
+		if err != nil {
+			log.Printf("Error decoding payload: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer")) // get token
+		if len(token) == 0 {
+			respondWithError(w, 401, "Unauthorized")
+			return
+		}
+		userEmail, err := validateJWT(token)
+		if err != nil {
+			respondWithError(w, 401, "Unauthorized")
+			return
+		}
+		u, err := db.UpdateUser(userEmail, pld.Email, pld.Password)
+		if err != nil {
+			log.Printf("Error updating user: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		respondWithSuccess(w, 200, u)
+	})
+
+	serveMux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
+		decoder := json.NewDecoder(r.Body)
+		pld := userPayload{}
 		err := decoder.Decode(&pld)
 		if err != nil {
 			log.Printf("Error decoding payload: %s", err)
@@ -207,7 +232,7 @@ func main() {
 		if pld.ExpInSec == 0 || jwtExpTime > 24*time.Hour {
 			jwtExpTime = 24 * time.Hour
 		}
-		token, err := createJWT(jwtExpTime, user.Id, cfg.jwtSecret)
+		token, err := createJWT(jwtExpTime, user.Email, cfg.jwtSecret)
 		if err != nil {
 			log.Printf("Error creating jwt: %s", err)
 			respondWithError(w, 500, "")
@@ -215,7 +240,7 @@ func main() {
 		}
 		user.Password = "" // remove password field from response
 		user.Token = token
-		respondWithSuccess(w, 201, user)
+		respondWithSuccess(w, 200, user)
 	})
 
 	err = server.ListenAndServe()
@@ -228,19 +253,33 @@ func login(userPassword, comparingPassword string) error {
 	return bcrypt.CompareHashAndPassword([]byte(userPassword), []byte(comparingPassword))
 }
 
-func createJWT(expTime time.Duration, userId int, jwtSecret string) (string, error) {
+func createJWT(expTime time.Duration, userEmail, jwtSecret string) (string, error) {
 	curTime := time.Now()
 	claims := jwt.RegisteredClaims{
 		Issuer:    "chirpy",
 		IssuedAt:  jwt.NewNumericDate(curTime),
 		ExpiresAt: jwt.NewNumericDate(curTime.Add(expTime)),
-		Subject:   strconv.Itoa(userId),
+		Subject:   userEmail,
 	}
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(jwtSecret))
 	if err != nil {
 		return "", err
 	}
 	return token, nil
+}
+
+func validateJWT(token string) (string, error) {
+	t, err := jwt.ParseWithClaims(token, &jwt.RegisteredClaims{}, func(t *jwt.Token) (interface{}, error) {
+		return []byte{}, nil
+	})
+	if err != nil {
+		return "", err
+	}
+	sub, err := t.Claims.GetSubject()
+	if err != nil {
+		return "", err
+	}
+	return sub, nil
 }
 
 func respondWithSuccess(w http.ResponseWriter, statusCode int, payload interface{}) {
