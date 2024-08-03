@@ -1,10 +1,13 @@
 package database
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -15,10 +18,12 @@ type chirp struct {
 }
 
 type user struct {
-	Id       int    `json:"id"`
-	Email    string `json:"email"`
-	Password string `json:"password,omitempty"`
-	Token    string `json:"token,omitempty"`
+	Id              int        `json:"id"`
+	Email           string     `json:"email"`
+	Password        string     `json:"password,omitempty"`
+	Token           string     `json:"token,omitempty"`
+	RefreshToken    string     `json:"refresh_token,omitempty"`
+	RefreshTokenExp *time.Time `json:"refresh_token_exp,omitempty"`
 }
 
 type databaseStructure struct {
@@ -162,6 +167,33 @@ func (db *database) UpdateUser(keyEmail, newEmail, newPassword string) (user, er
 	db.save(dbs)
 	newUser.Password = "" // remove password filed from response
 	return newUser, nil
+}
+
+func (db database) CreateRefreshToken(keyEmail string) (string, error) {
+	dbs, err := db.load()
+	if err != nil {
+		return "", err
+	}
+	refreshToken := make([]byte, 32)
+	_, err = rand.Read(refreshToken)
+	if err != nil {
+		return "", err
+	}
+	u := dbs.Users[keyEmail]
+	refreshTokenExp := time.Now().Add(60 * 24 * time.Hour)
+	dbs.Users[keyEmail] = user{
+		Id:              u.Id,
+		Email:           u.Email,
+		Password:        u.Password,
+		Token:           u.Token,
+		RefreshToken:    hex.EncodeToString(refreshToken),
+		RefreshTokenExp: &refreshTokenExp,
+	}
+	err = db.save(dbs)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(refreshToken), nil
 }
 
 func NewDatabase(path string) (database, error) {
