@@ -229,17 +229,24 @@ func main() {
 			return
 		}
 		jwtExpTime := time.Duration(pld.ExpInSec) * time.Second
-		if pld.ExpInSec == 0 || jwtExpTime > 24*time.Hour {
-			jwtExpTime = 24 * time.Hour
+		if pld.ExpInSec == 0 || jwtExpTime > 1*time.Hour {
+			jwtExpTime = 1 * time.Hour
 		}
-		token, err := createJWT(jwtExpTime, user.Email, cfg.jwtSecret)
+		accessToken, err := createJWT(jwtExpTime, user.Email, cfg.jwtSecret)
 		if err != nil {
 			log.Printf("Error creating jwt: %s", err)
 			respondWithError(w, 500, "")
 			return
 		}
+		refreshToken, err := db.CreateRefreshToken(pld.Email)
+		if err != nil {
+			log.Printf("Error creating refresh token: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
 		user.Password = "" // remove password field from response
-		user.Token = token
+		user.Token = accessToken
+		user.RefreshToken = refreshToken
 		respondWithSuccess(w, 200, user)
 	})
 
