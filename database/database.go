@@ -107,7 +107,7 @@ func (db database) GetChirp(chirpId int) (chirp, bool, error) {
 var userId = 1
 
 func (db database) CreateUser(email, password string) (user, error) {
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 10)
+	hashedPassword, err := hashPassword(password)
 	if err != nil {
 		return user{}, err
 	}
@@ -142,6 +142,28 @@ func (db database) GetUser(userEmail string) (user, bool, error) {
 	return u, ok, nil
 }
 
+func (db *database) UpdateUser(keyEmail, newEmail, newPassword string) (user, error) {
+	dbs, err := db.load()
+	if err != nil {
+		return user{}, err
+	}
+	u := dbs.Users[keyEmail]
+	hashedPassword, err := hashPassword(newPassword)
+	if err != nil {
+		return user{}, err
+	}
+	newUser := user{
+		Id:       u.Id,
+		Email:    newEmail,
+		Password: hashedPassword,
+	}
+	delete(dbs.Users, keyEmail)
+	dbs.Users[newEmail] = newUser
+	db.save(dbs)
+	newUser.Password = "" // remove password filed from response
+	return newUser, nil
+}
+
 func NewDatabase(path string) (database, error) {
 	fPath := filepath.Join(path, "database.json")
 	file, err := os.Create(fPath)
@@ -165,4 +187,12 @@ func NewDatabase(path string) (database, error) {
 		path: fPath,
 		mu:   &sync.RWMutex{},
 	}, nil
+}
+
+func hashPassword(password string) (string, error) {
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 10)
+	if err != nil {
+		return "", err
+	}
+	return string(hashedPassword), nil
 }
