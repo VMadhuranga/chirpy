@@ -169,6 +169,56 @@ func main() {
 		respondWithSuccess(w, 200, chirp)
 	})
 
+	serveMux.HandleFunc("DELETE /api/chirps/{chirpId}", func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer")) // get token
+		if len(token) == 0 {
+			respondWithError(w, 401, "Unauthorized")
+			return
+		}
+		userEmail, err := validateJWT(token)
+		if err != nil {
+			respondWithError(w, 401, "Unauthorized")
+			return
+		}
+		u, ok, err := db.GetUser(userEmail)
+		if err != nil {
+			log.Printf("Error getting user: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		if !ok {
+			respondWithError(w, 404, "User not found")
+			return
+		}
+		chirpId, err := strconv.Atoi(r.PathValue("chirpId"))
+		if err != nil {
+			log.Printf("Error converting string to int: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		chirp, ok, err := db.GetChirp(chirpId)
+		if err != nil {
+			log.Printf("Error getting chirp: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		if !ok {
+			respondWithError(w, 404, "Chirp not found")
+			return
+		}
+		if chirp.AuthorId != u.Id {
+			respondWithError(w, 403, "Forbidden")
+			return
+		}
+		err = db.DeleteChirp(chirpId)
+		if err != nil {
+			log.Printf("Error deleting chirp: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		respondWithSuccess(w, 204, nil)
+	})
+
 	serveMux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
 		pld := userPayload{}
