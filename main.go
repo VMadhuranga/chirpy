@@ -277,6 +277,21 @@ func main() {
 		}{Token: token})
 	})
 
+	serveMux.HandleFunc("POST /api/revoke", func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer")) // get token
+		if len(token) == 0 {
+			respondWithError(w, 401, "Unauthorized")
+			return
+		}
+		err := db.RevokeUserRefreshToken(token)
+		if err != nil {
+			log.Printf("Error revoking refresh token: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		respondWithSuccess(w, 204, nil)
+	})
+
 	err = server.ListenAndServe()
 	if err != nil {
 		panic(err)
