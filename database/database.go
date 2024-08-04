@@ -214,6 +214,31 @@ func (db database) GetRefreshTokenUser(refreshToken string) (user, error) {
 	return user{}, nil
 }
 
+func (db *database) RevokeUserRefreshToken(refreshToken string) error {
+	dbs, err := db.load()
+	if err != nil {
+		return err
+	}
+	for _, u := range dbs.Users {
+		if u.RefreshToken == refreshToken {
+			dbs.Users[u.Email] = user{
+				Id:              u.Id,
+				Email:           u.Email,
+				Password:        u.Password,
+				Token:           u.Token,
+				RefreshToken:    "",
+				RefreshTokenExp: nil,
+			}
+			break
+		}
+	}
+	err = db.save(dbs)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func NewDatabase(path string) (database, error) {
 	fPath := filepath.Join(path, "database.json")
 	file, err := os.Create(fPath)
