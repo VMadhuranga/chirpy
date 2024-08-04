@@ -158,14 +158,19 @@ func (db *database) UpdateUser(keyEmail, newEmail, newPassword string) (user, er
 		return user{}, err
 	}
 	newUser := user{
-		Id:       u.Id,
-		Email:    newEmail,
-		Password: hashedPassword,
+		Id:              u.Id,
+		Email:           newEmail,
+		Password:        hashedPassword,
+		Token:           u.Token,
+		RefreshToken:    u.RefreshToken,
+		RefreshTokenExp: u.RefreshTokenExp,
 	}
 	delete(dbs.Users, keyEmail)
 	dbs.Users[newEmail] = newUser
 	db.save(dbs)
-	newUser.Password = "" // remove password filed from response
+	newUser.Password = ""         // remove password field from response
+	newUser.RefreshToken = ""     // remove refresh token field from response
+	newUser.RefreshTokenExp = nil // remove refresh token exp field from response
 	return newUser, nil
 }
 
@@ -194,6 +199,19 @@ func (db database) CreateRefreshToken(keyEmail string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(refreshToken), nil
+}
+
+func (db database) GetRefreshTokenUser(refreshToken string) (user, error) {
+	dbs, err := db.load()
+	if err != nil {
+		return user{}, err
+	}
+	for _, u := range dbs.Users {
+		if u.RefreshToken == refreshToken {
+			return u, nil
+		}
+	}
+	return user{}, nil
 }
 
 func NewDatabase(path string) (database, error) {
