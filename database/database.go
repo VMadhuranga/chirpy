@@ -13,8 +13,9 @@ import (
 )
 
 type chirp struct {
-	Id   int    `json:"id"`
-	Body string `json:"body"`
+	Id       int    `json:"id"`
+	Body     string `json:"body"`
+	AuthorId int    `json:"author_id"`
 }
 
 type user struct {
@@ -67,10 +68,11 @@ func (db database) save(dbs databaseStructure) error {
 
 var chirpId = 1
 
-func (db database) CreateChirp(body string) (chirp, error) {
+func (db database) CreateChirp(body string, authorId int) (chirp, error) {
 	c := chirp{
-		Id:   chirpId,
-		Body: body,
+		Id:       chirpId,
+		Body:     body,
+		AuthorId: authorId,
 	}
 	dbs, err := db.load()
 	if err != nil {
