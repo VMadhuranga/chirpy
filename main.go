@@ -250,6 +250,33 @@ func main() {
 		respondWithSuccess(w, 200, user)
 	})
 
+	serveMux.HandleFunc("POST /api/refresh", func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer")) // get token
+		if len(token) == 0 {
+			respondWithError(w, 401, "Unauthorized")
+			return
+		}
+		u, err := db.GetRefreshTokenUser(token)
+		if err != nil {
+			log.Printf("Error getting refresh token: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		if len(u.RefreshToken) == 0 || u.RefreshTokenExp.Before(time.Now()) {
+			respondWithError(w, 401, "Unauthorized")
+			return
+		}
+		token, err = createJWT(1*time.Hour, u.Email, cfg.jwtSecret)
+		if err != nil {
+			log.Printf("Error creating jwt: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		respondWithSuccess(w, 200, struct {
+			Token string `json:"token"`
+		}{Token: token})
+	})
+
 	err = server.ListenAndServe()
 	if err != nil {
 		panic(err)
