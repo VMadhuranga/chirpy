@@ -93,12 +93,32 @@ func main() {
 	})
 
 	serveMux.HandleFunc("POST /api/chirps", func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer")) // get token
+		if len(token) == 0 {
+			respondWithError(w, 401, "Unauthorized")
+			return
+		}
+		userEmail, err := validateJWT(token)
+		if err != nil {
+			respondWithError(w, 401, "Unauthorized")
+			return
+		}
+		u, ok, err := db.GetUser(userEmail)
+		if err != nil {
+			log.Printf("Error getting user: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		if !ok {
+			respondWithError(w, 404, "User not found")
+			return
+		}
 		type payload struct {
 			Body string
 		}
 		decoder := json.NewDecoder(r.Body)
 		pld := payload{}
-		err := decoder.Decode(&pld)
+		err = decoder.Decode(&pld)
 		if err != nil {
 			log.Printf("Error decoding payload: %s", err)
 			respondWithError(w, 500, "")
@@ -108,13 +128,14 @@ func main() {
 			respondWithError(w, 400, "Chirp is too long")
 			return
 		}
-		chirp, err := db.CreateChirp(pld.Body)
+		chirp, err := db.CreateChirp(pld.Body, u.Id)
 		if err != nil {
 			log.Printf("Error creating chirp: %s", err)
 			respondWithError(w, 500, "")
 			return
 		}
 		chirp.Body = removeProfane(chirp.Body)
+		chirp.AuthorId = u.Id
 		respondWithSuccess(w, 201, chirp)
 	})
 
