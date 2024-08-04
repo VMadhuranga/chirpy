@@ -111,6 +111,16 @@ func (db database) GetChirp(chirpId int) (chirp, bool, error) {
 	return c, ok, nil
 }
 
+func (db database) DeleteChirp(chirpId int) error {
+	dbs, err := db.load()
+	if err != nil {
+		return err
+	}
+	delete(dbs.Chirps, chirpId)
+	err = db.save(dbs)
+	return nil
+}
+
 var userId = 1
 
 func (db database) CreateUser(email, password string) (user, error) {
