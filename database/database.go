@@ -112,6 +112,20 @@ func (db database) GetChirp(chirpId int) (chirp, bool, error) {
 	return c, ok, nil
 }
 
+func (db database) GetAuthorChirps(authorId int) ([]chirp, error) {
+	dbs, err := db.load()
+	if err != nil {
+		return []chirp{}, err
+	}
+	authorChirps := []chirp{}
+	for _, chirp := range dbs.Chirps {
+		if chirp.AuthorId == authorId {
+			authorChirps = append(authorChirps, chirp)
+		}
+	}
+	return authorChirps, nil
+}
+
 func (db database) DeleteChirp(chirpId int) error {
 	dbs, err := db.load()
 	if err != nil {
