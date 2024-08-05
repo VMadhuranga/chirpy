@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -88,7 +89,7 @@ func (db database) CreateChirp(body string, authorId int) (chirp, error) {
 	return c, nil
 }
 
-func (db database) GetChirps() ([]chirp, error) {
+func (db database) GetChirps(sortOrder string) ([]chirp, error) {
 	dbs, err := db.load()
 	if err != nil {
 		return []chirp{}, err
@@ -97,7 +98,7 @@ func (db database) GetChirps() ([]chirp, error) {
 	for _, c := range dbs.Chirps {
 		chirps = append(chirps, c)
 	}
-	return chirps, nil
+	return sortChirps(chirps, sortOrder), nil
 }
 
 func (db database) GetChirp(chirpId int) (chirp, bool, error) {
@@ -112,7 +113,7 @@ func (db database) GetChirp(chirpId int) (chirp, bool, error) {
 	return c, ok, nil
 }
 
-func (db database) GetAuthorChirps(authorId int) ([]chirp, error) {
+func (db database) GetAuthorChirps(authorId int, sortOrder string) ([]chirp, error) {
 	dbs, err := db.load()
 	if err != nil {
 		return []chirp{}, err
@@ -123,7 +124,7 @@ func (db database) GetAuthorChirps(authorId int) ([]chirp, error) {
 			authorChirps = append(authorChirps, chirp)
 		}
 	}
-	return authorChirps, nil
+	return sortChirps(authorChirps, sortOrder), nil
 }
 
 func (db database) DeleteChirp(chirpId int) error {
@@ -293,6 +294,19 @@ func (db database) UpdateUserChirpyRedStatus(userEmail string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+func sortChirps(chirps []chirp, sortOrder string) []chirp {
+	if sortOrder == "" || sortOrder == "asc" {
+		slices.SortFunc(chirps, func(a, b chirp) int {
+			return a.Id - b.Id
+		})
+	} else if sortOrder == "desc" {
+		slices.SortFunc(chirps, func(a, b chirp) int {
+			return b.Id - a.Id
+		})
+	}
+	return chirps
 }
 
 func NewDatabase(path string) (database, error) {
