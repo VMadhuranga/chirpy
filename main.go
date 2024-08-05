@@ -140,6 +140,23 @@ func main() {
 	})
 
 	serveMux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {
+		authorId := r.URL.Query().Get("author_id")
+		if len(authorId) > 0 {
+			authorId, err := strconv.Atoi(authorId)
+			if err != nil {
+				log.Printf("Error converting string to int: %s", err)
+				respondWithError(w, 500, "")
+				return
+			}
+			authorChirps, err := db.GetAuthorChirps(authorId)
+			if err != nil {
+				log.Printf("Error getting author chirps: %s", err)
+				respondWithError(w, 500, "")
+				return
+			}
+			respondWithSuccess(w, 200, authorChirps)
+			return
+		}
 		chirps, err := db.GetChirps()
 		if err != nil {
 			log.Printf("Error getting chirps: %s", err)
