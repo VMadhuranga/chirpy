@@ -141,6 +141,7 @@ func main() {
 
 	serveMux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {
 		authorId := r.URL.Query().Get("author_id")
+		sort := r.URL.Query().Get("sort")
 		if len(authorId) > 0 {
 			authorId, err := strconv.Atoi(authorId)
 			if err != nil {
@@ -148,7 +149,7 @@ func main() {
 				respondWithError(w, 500, "")
 				return
 			}
-			authorChirps, err := db.GetAuthorChirps(authorId)
+			authorChirps, err := db.GetAuthorChirps(authorId, sort)
 			if err != nil {
 				log.Printf("Error getting author chirps: %s", err)
 				respondWithError(w, 500, "")
@@ -157,7 +158,7 @@ func main() {
 			respondWithSuccess(w, 200, authorChirps)
 			return
 		}
-		chirps, err := db.GetChirps()
+		chirps, err := db.GetChirps(sort)
 		if err != nil {
 			log.Printf("Error getting chirps: %s", err)
 			respondWithError(w, 500, "")
