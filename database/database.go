@@ -21,6 +21,7 @@ type chirp struct {
 type user struct {
 	Id              int        `json:"id"`
 	Email           string     `json:"email"`
+	IsChirpyRed     bool       `json:"is_chirpy_red"`
 	Password        string     `json:"password,omitempty"`
 	Token           string     `json:"token,omitempty"`
 	RefreshToken    string     `json:"refresh_token,omitempty"`
@@ -118,6 +119,9 @@ func (db database) DeleteChirp(chirpId int) error {
 	}
 	delete(dbs.Chirps, chirpId)
 	err = db.save(dbs)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -202,6 +206,7 @@ func (db database) CreateRefreshToken(keyEmail string) (string, error) {
 		Id:              u.Id,
 		Email:           u.Email,
 		Password:        u.Password,
+		IsChirpyRed:     u.IsChirpyRed,
 		Token:           u.Token,
 		RefreshToken:    hex.EncodeToString(refreshToken),
 		RefreshTokenExp: &refreshTokenExp,
@@ -249,6 +254,31 @@ func (db *database) RevokeUserRefreshToken(refreshToken string) error {
 		return err
 	}
 	return nil
+}
+
+func (db database) UpdateUserChirpyRedStatus(userEmail string) (bool, error) {
+	dbs, err := db.load()
+	if err != nil {
+		return false, err
+	}
+	u, ok := dbs.Users[userEmail]
+	if !ok {
+		return false, nil
+	}
+	dbs.Users[userEmail] = user{
+		Id:              u.Id,
+		Email:           u.Email,
+		IsChirpyRed:     true,
+		Password:        u.Password,
+		Token:           u.Token,
+		RefreshToken:    u.RefreshToken,
+		RefreshTokenExp: u.RefreshTokenExp,
+	}
+	err = db.save(dbs)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func NewDatabase(path string) (database, error) {
