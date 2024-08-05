@@ -363,6 +363,47 @@ func main() {
 		respondWithSuccess(w, 204, nil)
 	})
 
+	serveMux.HandleFunc("POST /api/polka/webhooks", func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "ApiKey")) // get token
+		if len(token) == 0 {
+			respondWithError(w, 401, "Unauthorized")
+			return
+		}
+		if token != os.Getenv("POLKA_API_KEY") {
+			respondWithError(w, 401, "Unauthorized")
+			return
+		}
+		type payload struct {
+			Event string `json:"event"`
+			Data  struct {
+				UserEmail string `json:"user_email"`
+			} `json:"data"`
+		}
+		decoder := json.NewDecoder(r.Body)
+		pld := payload{}
+		err := decoder.Decode(&pld)
+		if err != nil {
+			log.Printf("Error decoding payload: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		if pld.Event != "user.upgraded" {
+			respondWithSuccess(w, 204, nil)
+			return
+		}
+		ok, err := db.UpdateUserChirpyRedStatus(pld.Data.UserEmail)
+		if err != nil {
+			log.Printf("Error updating chirpy red status: %s", err)
+			respondWithError(w, 500, "")
+			return
+		}
+		if !ok {
+			respondWithError(w, 404, "User not found")
+			return
+		}
+		respondWithSuccess(w, 204, nil)
+	})
+
 	err = server.ListenAndServe()
 	if err != nil {
 		panic(err)
