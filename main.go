@@ -5,91 +5,15 @@ import (
 	"chirpy/internal/database"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
-
-type apiConfig struct {
-	fileserverHits atomic.Int32
-	queries        *database.Queries
-	platform       string
-	jwtSecret      string
-}
-
-func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cfg.fileserverHits.Add(1)
-		next.ServeHTTP(w, r)
-	})
-}
-
-func (cfg *apiConfig) getMetrics(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf(`<html>
-  <body>
-    <h1>Welcome, Chirpy Admin</h1>
-    <p>Chirpy has been visited %d times!</p>
-  </body>
-</html>`, cfg.fileserverHits.Load())))
-}
-
-type userRes struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
-}
-
-type chirpRes struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Body      string    `json:"body"`
-	UserID    uuid.UUID `json:"user_id"`
-}
-
-type loginRes struct {
-	ID           uuid.UUID `json:"id"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	Email        string    `json:"email"`
-	Token        string    `json:"token"`
-	RefreshToken string    `json:"refresh_token"`
-}
-
-type refreshRes struct {
-	Token string `json:"token"`
-}
-
-func (cfg *apiConfig) resetMetrics(w http.ResponseWriter, r *http.Request) {
-	cfg.fileserverHits.Store(0)
-
-	if cfg.platform != "dev" {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(fmt.Sprintf("Hits: %v\n", cfg.fileserverHits.Load())))
-		return
-	}
-
-	err := cfg.queries.DeleteAllUsers(r.Context())
-	if err != nil {
-		log.Printf("error deleting all users: %s", err)
-		respondWithError(w, http.StatusInternalServerError, "error deleting all users")
-		return
-	}
-
-	respondWithJSON(w, http.StatusOK, nil)
-}
 
 func main() {
 	log.SetFlags(log.Lshortfile)
@@ -287,6 +211,61 @@ func main() {
 			Email:     usr.Email,
 		})
 	})
+	serveMux.HandleFunc("PUT /api/users", func(w http.ResponseWriter, r *http.Request) {
+		token, err := auth.GetBearerToken(r.Header)
+		if err != nil {
+			log.Printf("error getting bearer token: %s\n", err)
+			respondWithError(w, http.StatusUnauthorized, "error getting bearer token")
+			return
+		}
+
+		usrID, err := auth.ValidateJWT(token, apiConfig.jwtSecret)
+		if err != nil {
+			log.Printf("error validating token: %s\n", err)
+			respondWithError(w, http.StatusUnauthorized, "error validating token")
+			return
+		}
+
+		type payload struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+
+		pld := payload{}
+		err = json.NewDecoder(r.Body).Decode(&pld)
+		if err != nil {
+			log.Printf("error decoding payload: %s\n", err)
+			respondWithError(w, http.StatusBadRequest, "error decoding payload")
+			return
+		}
+		defer r.Body.Close()
+
+		hashedPassword, err := auth.HashPassword(pld.Password)
+		if err != nil {
+			log.Printf("error hashing password: %s\n", err)
+			respondWithError(w, http.StatusInternalServerError, "error hashing password")
+			return
+		}
+
+		usr, err := apiConfig.queries.UpdateUserByID(r.Context(), database.UpdateUserByIDParams{
+			Email:          pld.Email,
+			HashedPassword: hashedPassword,
+			UpdatedAt:      time.Now(),
+			ID:             usrID,
+		})
+		if err != nil {
+			log.Printf("error updating user by id: %s", err)
+			respondWithError(w, http.StatusInternalServerError, "error updating user by id")
+			return
+		}
+
+		respondWithJSON(w, http.StatusOK, userRes{
+			ID:        usr.ID,
+			CreatedAt: usr.CreatedAt,
+			UpdatedAt: usr.UpdatedAt,
+			Email:     usr.Email,
+		})
+	})
 
 	serveMux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {
 		chirps, err := apiConfig.queries.GetAllChirps(r.Context())
@@ -343,7 +322,6 @@ func main() {
 
 		type payload struct {
 			Body string `json:"body"`
-			// UserID string `json:"user_id"`
 		}
 
 		pld := payload{}
@@ -360,13 +338,6 @@ func main() {
 			respondWithError(w, http.StatusBadRequest, "payload body is too long")
 			return
 		}
-
-		// usrID, err := uuid.Parse(pld.UserID)
-		// if err != nil {
-		// 	log.Printf("error parsing uuid: %s", err)
-		// 	respondWithError(w, http.StatusBadRequest, "error parsing uuid")
-		// 	return
-		// }
 
 		chirp, err := apiConfig.queries.CreateChirp(r.Context(), database.CreateChirpParams{
 			Body:   pld.Body,
@@ -387,38 +358,53 @@ func main() {
 		})
 	})
 
+	serveMux.HandleFunc("DELETE /api/chirps/{chirpID}", func(w http.ResponseWriter, r *http.Request) {
+		token, err := auth.GetBearerToken(r.Header)
+		if err != nil {
+			log.Printf("error getting bearer token: %s\n", err)
+			respondWithError(w, http.StatusUnauthorized, "error getting bearer token")
+			return
+		}
+
+		usrID, err := auth.ValidateJWT(token, apiConfig.jwtSecret)
+		if err != nil {
+			log.Printf("error validating token: %s\n", err)
+			respondWithError(w, http.StatusUnauthorized, "error validating token")
+			return
+		}
+
+		chirpID, err := uuid.Parse(r.PathValue("chirpID"))
+		if err != nil {
+			log.Println("invalid chirp id")
+			respondWithError(w, http.StatusBadRequest, "invalid chirp id")
+			return
+		}
+
+		chirp, err := apiConfig.queries.GetChirpByID(r.Context(), chirpID)
+		if err != nil {
+			log.Printf("error getting chirp by id: %s", err)
+			respondWithError(w, http.StatusNotFound, "error getting chirp by id")
+			return
+		}
+
+		if chirp.UserID.String() != usrID.String() {
+			log.Println("user is not the author of the chirp")
+			respondWithError(w, http.StatusForbidden, "user is not the author of the chirp")
+			return
+		}
+
+		err = apiConfig.queries.DeleteChirpByID(r.Context(), chirp.ID)
+		if err != nil {
+			log.Printf("error deleting chirp by id: %s", err)
+			respondWithError(w, http.StatusInternalServerError, "error deleting chirp by id")
+			return
+		}
+
+		respondWithJSON(w, http.StatusNoContent, nil)
+	})
+
 	err = server.ListenAndServe()
 	if err != nil {
 		log.Fatalln(err)
 	}
-}
-
-func respondWithError(w http.ResponseWriter, code int, msg string) {
-	respondWithJSON(w, code, map[string]string{"error": msg})
-}
-
-func respondWithJSON(w http.ResponseWriter, code int, payload any) {
-	resData, err := json.Marshal(payload)
-	if err != nil {
-		log.Printf("error encoding payload: %s\n", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	w.Write(resData)
-}
-
-func removeProfane(input string) string {
-	cleanedInput := strings.Split(input, " ")
-
-	for i, v := range cleanedInput {
-		switch strings.ToLower(v) {
-		case "kerfuffle", "sharbert", "fornax":
-			cleanedInput[i] = "****"
-		}
-	}
-
-	return strings.Join(cleanedInput, " ")
 }
