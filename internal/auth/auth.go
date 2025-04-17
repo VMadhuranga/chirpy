@@ -90,7 +90,7 @@ func GetBearerToken(headers http.Header) (string, error) {
 		return "", fmt.Errorf("bearer prefix not found")
 	}
 
-	return token, nil
+	return strings.TrimSpace(token), nil
 }
 
 func MakeRefreshToken() (string, error) {
@@ -102,4 +102,20 @@ func MakeRefreshToken() (string, error) {
 	}
 
 	return hex.EncodeToString(token), nil
+}
+
+func GetAPIKey(headers http.Header) (string, error) {
+	authHeader := headers.Get("Authorization")
+	if authHeader == "" {
+		log.Println("Authorization header not found")
+		return "", fmt.Errorf("authorization header not found")
+	}
+
+	token, ok := strings.CutPrefix(authHeader, "ApiKey ")
+	if !ok {
+		log.Println("ApiKey prefix not found")
+		return "", fmt.Errorf("apikey prefix not found")
+	}
+
+	return strings.TrimSpace(token), nil
 }

@@ -33,6 +33,7 @@ func main() {
 	apiConfig.queries = dbQueries
 	apiConfig.platform = os.Getenv("PLATFORM")
 	apiConfig.jwtSecret = os.Getenv("JWT_SECRET")
+	apiConfig.polkaSecret = os.Getenv("POLKA_KEY")
 
 	serveMux := http.NewServeMux()
 	server := http.Server{
@@ -107,10 +108,13 @@ func main() {
 		}
 
 		respondWithJSON(w, http.StatusOK, loginRes{
-			ID:           usr.ID,
-			CreatedAt:    usr.CreatedAt,
-			UpdatedAt:    usr.UpdatedAt,
-			Email:        usr.Email,
+			userRes: userRes{
+				ID:          usr.ID,
+				CreatedAt:   usr.CreatedAt,
+				UpdatedAt:   usr.UpdatedAt,
+				Email:       usr.Email,
+				IsChirpyRed: usr.IsChirpyRed,
+			},
 			Token:        token,
 			RefreshToken: rToken,
 		})
@@ -205,10 +209,11 @@ func main() {
 		}
 
 		respondWithJSON(w, http.StatusCreated, userRes{
-			ID:        usr.ID,
-			CreatedAt: usr.CreatedAt,
-			UpdatedAt: usr.UpdatedAt,
-			Email:     usr.Email,
+			ID:          usr.ID,
+			CreatedAt:   usr.CreatedAt,
+			UpdatedAt:   usr.UpdatedAt,
+			Email:       usr.Email,
+			IsChirpyRed: usr.IsChirpyRed,
 		})
 	})
 	serveMux.HandleFunc("PUT /api/users", func(w http.ResponseWriter, r *http.Request) {
@@ -260,10 +265,11 @@ func main() {
 		}
 
 		respondWithJSON(w, http.StatusOK, userRes{
-			ID:        usr.ID,
-			CreatedAt: usr.CreatedAt,
-			UpdatedAt: usr.UpdatedAt,
-			Email:     usr.Email,
+			ID:          usr.ID,
+			CreatedAt:   usr.CreatedAt,
+			UpdatedAt:   usr.UpdatedAt,
+			Email:       usr.Email,
+			IsChirpyRed: usr.IsChirpyRed,
 		})
 	})
 
@@ -397,6 +403,58 @@ func main() {
 		if err != nil {
 			log.Printf("error deleting chirp by id: %s", err)
 			respondWithError(w, http.StatusInternalServerError, "error deleting chirp by id")
+			return
+		}
+
+		respondWithJSON(w, http.StatusNoContent, nil)
+	})
+
+	serveMux.HandleFunc("POST /api/polka/webhooks", func(w http.ResponseWriter, r *http.Request) {
+		key, err := auth.GetAPIKey(r.Header)
+		if err != nil {
+			log.Printf("error getting api key: %s", err)
+			respondWithError(w, http.StatusUnauthorized, "error getting api key")
+			return
+		}
+
+		if key != apiConfig.polkaSecret {
+			log.Println("invalid api key")
+			respondWithError(w, http.StatusUnauthorized, "invalid api key")
+			return
+		}
+
+		type payload struct {
+			Event string `json:"event"`
+			Data  struct {
+				UserID string `json:"user_id"`
+			} `json:"data"`
+		}
+
+		pld := payload{}
+		err = json.NewDecoder(r.Body).Decode(&pld)
+		if err != nil {
+			log.Printf("error decoding payload: %s\n", err)
+			respondWithError(w, http.StatusBadRequest, "error decoding payload")
+			return
+		}
+		defer r.Body.Close()
+
+		if pld.Event != "user.upgraded" {
+			respondWithJSON(w, http.StatusNoContent, nil)
+			return
+		}
+
+		usrID, err := uuid.Parse(pld.Data.UserID)
+		if err != nil {
+			log.Println("invalid user id")
+			respondWithError(w, http.StatusBadRequest, "invalid user id")
+			return
+		}
+
+		_, err = apiConfig.queries.UpdateUserToChirpyRedByID(r.Context(), usrID)
+		if err != nil {
+			log.Printf("error updating user to chirpy red: %s", err)
+			respondWithError(w, http.StatusNotFound, "error updating user to chirpy red")
 			return
 		}
 
