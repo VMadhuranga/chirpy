@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -274,16 +275,45 @@ func main() {
 	})
 
 	serveMux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {
-		chirps, err := apiConfig.queries.GetAllChirps(r.Context())
-		if err != nil {
-			log.Printf("error getting all chirps: %s\n", err)
-			respondWithError(w, http.StatusNotFound, "error getting all chirps")
-			return
+		var chirps []database.Chirp
+
+		authorIDQuery := r.URL.Query().Get("author_id")
+		if authorIDQuery == "" {
+			c, err := apiConfig.queries.GetAllChirps(r.Context())
+			if err != nil {
+				log.Printf("error getting all chirps: %s\n", err)
+				respondWithError(w, http.StatusNotFound, "error getting all chirps")
+				return
+			}
+			chirps = c
+		} else {
+			authorID, err := uuid.Parse(authorIDQuery)
+			if err != nil {
+				log.Printf("error parsing authorID: %s", err)
+				respondWithError(w, http.StatusBadRequest, "error parsing authorID")
+				return
+			}
+
+			c, err := apiConfig.queries.GetAllChirpsByUserID(r.Context(), authorID)
+			if err != nil {
+				log.Printf("error getting chirp by id: %s", err)
+				respondWithError(w, http.StatusNotFound, "error getting chirp by id")
+				return
+			}
+			chirps = c
 		}
 
 		chirpsRes := []chirpRes{}
 		for _, chirp := range chirps {
 			chirpsRes = append(chirpsRes, chirpRes(chirp))
+		}
+
+		sortQuery := r.URL.Query().Get("sort")
+
+		if sortQuery == "desc" {
+			slices.SortFunc(chirpsRes, func(a, b chirpRes) int {
+				return b.CreatedAt.Compare(a.CreatedAt)
+			})
 		}
 
 		respondWithJSON(w, http.StatusOK, chirpsRes)
